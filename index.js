@@ -4,22 +4,15 @@ const { Player } = require('discord-player');
 const http = require('http');
 
 // ==========================================
-// 📝 ZONE ACTUALITÉ ET INFOS
+// 📝 TEXTES
 // ==========================================
-const TXT_ACTU = `🔴 **INFOS** : Le bot fait maintenant DJ ! Tape !play pour tester.`;
 const TXT_AIDE = `
-🎵 **COMMANDES MUSIQUE**
-!play [titre] -> Lancer une musique
-!stop -> Arrêter et vider la liste
-!skip -> Passer à la suivante
-!queue -> Voir la liste d'attente
-
-🤖 **AUTRES**
-!ia [question] -> Parler à l'IA
-!actu -> Les nouvelles
+🎵 **MUSIQUE**
+!play [titre]
+!stop / !skip / !queue
 `;
 
-// --- 1. CONFIGURATION ---
+// --- CONFIG ---
 let token, geminiKey;
 try {
     const config = require('./config.json');
@@ -31,110 +24,92 @@ try {
 }
 if (geminiKey) geminiKey = geminiKey.trim();
 
-// --- 2. SERVEUR WEB (Pour garder le VPS content) ---
-const server = http.createServer((req, res) => { res.writeHead(200); res.end('Cassian Music is ON'); });
+// --- SERVEUR WEB ---
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('Cassian Music ON'); });
 server.listen(3000);
 
-// --- 3. CONFIGURATION IA ---
+// --- IA ---
 const genAI = new GoogleGenerativeAI(geminiKey);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-// --- 4. CONFIGURATION DISCORD + MUSIQUE ---
+// --- DISCORD ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildVoiceStates // OBLIGATOIRE pour la musique
+        GatewayIntentBits.GuildVoiceStates
     ]
 });
 
-// Création du lecteur musique
-const player = new Player(client);
-
-// On charge les "extracteurs" (pour lire YouTube, Spotify, etc.)
-player.extractors.loadDefault();
-
-client.on('ready', () => {
-    console.log(`✅ Connecté en tant que ${client.user.tag}!`);
+// --- MUSIQUE (Correction ici) ---
+const player = new Player(client, {
+    ytdlOptions: {
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25
+    }
 });
 
-// --- GESTION DES MESSAGES ---
+// Chargement des extracteurs (YouTube, Spotify...)
+// C'est ici que j'avais oublié le "await" !
+async function chargerExtracteurs() {
+    await player.extractors.loadDefault();
+    console.log("✅ Extracteurs audio chargés !");
+}
+
+// Gestion des erreurs musique (Pour comprendre si ça plante)
+player.events.on('playerError', (queue, error) => {
+    console.log(`❌ Erreur Player: ${error.message}`);
+});
+player.events.on('error', (queue, error) => {
+    console.log(`❌ Erreur Queue: ${error.message}`);
+});
+
+client.on('ready', () => {
+    console.log(`✅ Connecté: ${client.user.tag}`);
+    chargerExtracteurs(); // On lance le chargement au démarrage
+});
+
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // --- COMMANDES TEXTE ---
-    if (message.content === '!actu') message.reply(TXT_ACTU);
     if (message.content === '!aide') message.reply(TXT_AIDE);
-    if (message.content === '!ping') message.reply('Pong 🏓');
 
-    // --- COMMANDES MUSIQUE ---
-    
-    // 1. JOUER (!play titre)
+    // --- PLAY ---
     if (message.content.startsWith('!play ')) {
         const query = message.content.slice(6);
         const voiceChannel = message.member.voice.channel;
-
-        if (!voiceChannel) return message.reply("❌ Tu dois être dans un salon vocal !");
+        if (!voiceChannel) return message.reply("❌ Tu dois être en vocal !");
 
         try {
             await message.channel.sendTyping();
             
-            // Recherche et lecture
             const result = await player.play(voiceChannel, query, {
-                nodeOptions: {
-                    metadata: message // On garde le message pour répondre plus tard
-                }
+                nodeOptions: { metadata: message }
             });
-
-            return message.reply(`🎶 **En piste !** J'ai ajouté : **${result.track.title}**`);
+            return message.reply(`🎶 **Trouvé :** ${result.track.title}`);
         } catch (e) {
             console.error(e);
-            return message.reply(`❌ Erreur : Je n'ai pas trouvé ou je ne peux pas jouer ce titre.`);
+            return message.reply(`❌ Erreur : ${e.message}`);
         }
     }
 
-    // 2. STOP (!stop)
+    // --- STOP ---
     if (message.content === '!stop') {
         const queue = player.nodes.get(message.guild);
-        if (!queue) return message.reply("❌ Rien n'est en cours de lecture.");
-        queue.delete();
-        return message.reply("🛑 Musique arrêtée, à plus !");
+        if (queue) { queue.delete(); message.reply("🛑 Stop."); }
     }
 
-    // 3. SKIP (!skip)
-    if (message.content === '!skip') {
-        const queue = player.nodes.get(message.guild);
-        if (!queue || !queue.isPlaying()) return message.reply("❌ Rien à passer.");
-        queue.node.skip();
-        return message.reply("⏭️ Piste suivante !");
-    }
-
-    // 4. QUEUE (!queue)
-    if (message.content === '!queue') {
-        const queue = player.nodes.get(message.guild);
-        if (!queue || !queue.tracks.size === 0) return message.reply("📭 La liste est vide.");
-        
-        const tracks = queue.tracks.map((t, i) => `${i + 1} - ${t.title}`).slice(0, 5).join('\n');
-        return message.reply(`📜 **Liste d'attente :**\n${tracks}`);
-    }
-
-
-    // --- COMMANDE IA ---
+    // --- IA ---
     if (message.content.startsWith('!ia ')) {
         const question = message.content.slice(4);
         await message.channel.sendTyping();
         try {
             const result = await model.generateContent(question);
             const text = result.response.text();
-            if (text.length > 2000) {
-                await message.reply(text.slice(0, 1990) + "...");
-            } else {
-                await message.reply(text);
-            }
-        } catch (error) {
-            await message.reply("Erreur IA : " + error.message);
-        }
+            if (text.length > 2000) await message.reply(text.slice(0, 1990) + "...");
+            else await message.reply(text);
+        } catch (e) { message.reply("Erreur IA"); }
     }
 });
 
