@@ -1,7 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { Player } = require('discord-player');
-// AJOUT VITAL : On importe la liste des extracteurs
+const { Player, QueryType } = require('discord-player'); // Ajout de QueryType
 const { DefaultExtractors } = require('@discord-player/extractor'); 
 const http = require('http');
 
@@ -10,7 +9,7 @@ const http = require('http');
 // ==========================================
 const TXT_AIDE = `
 🎵 **MUSIQUE**
-!play [titre]
+!play [titre ou lien]
 !stop / !skip / !queue
 `;
 
@@ -48,33 +47,29 @@ const client = new Client({
 const player = new Player(client, {
     ytdlOptions: {
         quality: 'highestaudio',
-        highWaterMark: 1 << 25
+        highWaterMark: 1 << 25, // Augmente la mémoire tampon pour éviter les coupures
+        filter: 'audioonly'
     }
 });
 
-// Gestion des erreurs musique
 player.events.on('playerError', (queue, error) => console.log(`❌ PlayerError: ${error.message}`));
 player.events.on('error', (queue, error) => console.log(`❌ Error: ${error.message}`));
 
 client.on('ready', async () => {
     console.log(`✅ Connecté: ${client.user.tag}`);
-
-    // --- CORRECTION ICI : CHARGEMENT FORCÉ ---
     try {
-        console.log("⏳ Chargement des extracteurs audio...");
         await player.extractors.loadMulti(DefaultExtractors);
-        console.log("✅ Extracteurs chargés avec succès ! (YouTube, Spotify, etc.)");
+        console.log("✅ Extracteurs chargés !");
     } catch (e) {
-        console.log("❌ CRASH chargement extracteurs :", e);
+        console.log("❌ Erreur chargement extracteurs :", e);
     }
 });
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
-
     if (message.content === '!aide') message.reply(TXT_AIDE);
 
-    // --- PLAY ---
+    // --- PLAY (CORRIGÉ POUR LES LIENS) ---
     if (message.content.startsWith('!play ')) {
         const query = message.content.slice(6);
         const voiceChannel = message.member.voice.channel;
@@ -83,14 +78,15 @@ client.on('messageCreate', async message => {
         try {
             await message.channel.sendTyping();
             
-            // On joue !
+            // On utilise "QueryType.AUTO" pour qu'il devine si c'est un lien ou un titre
             const result = await player.play(voiceChannel, query, {
-                nodeOptions: { metadata: message }
+                nodeOptions: { metadata: message },
+                searchEngine: QueryType.AUTO 
             });
             return message.reply(`🎶 **En piste :** ${result.track.title}`);
         } catch (e) {
             console.error(e);
-            return message.reply(`❌ Erreur : ${e.message}`);
+            return message.reply(`❌ Erreur : Impossible de lire ce titre/lien (Blocage YouTube probable).`);
         }
     }
 
