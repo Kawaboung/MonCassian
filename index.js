@@ -33,9 +33,9 @@ const client = new Client({
     ]
 });
 
-// On configure l'IA avec la clé
+// On configure l'IA avec le modèle standard "gemini-pro"
 const genAI = new GoogleGenerativeAI(geminiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
 client.on('ready', () => {
     console.log(`Connecté en tant que ${client.user.tag}!`);
