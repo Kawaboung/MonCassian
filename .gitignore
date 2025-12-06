@@ -1,0 +1,14 @@
+# Fichiers et dossiers à ignorer par Git :
+# ----------------------------------------
+
+# 1. Dossier des dépendances de Node.js (trop gros et non nécessaire sur GitHub)
+node_modules
+
+# 2. Fichier contenant le Token Discord et la Clé API (Doit rester secret)
+config.json
+
+# 3. Dossier de l'installation de VS Code qui cause l'erreur de 186 MB
+Microsoft VS Code/
+
+# 4. Tous les fichiers exécutables (.exe) pour éviter toute erreur future
+*.exe
