@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { Player, QueryType } = require('discord-player'); // Ajout de QueryType
+const { Player, QueryType } = require('discord-player');
 const { DefaultExtractors } = require('@discord-player/extractor'); 
 const http = require('http');
 
@@ -9,7 +9,8 @@ const http = require('http');
 // ==========================================
 const TXT_AIDE = `
 🎵 **MUSIQUE**
-!play [titre ou lien]
+!play [titre] -> Cherche sur SoundCloud
+!play [lien] -> Lit le lien (SC, Spotify...)
 !stop / !skip / !queue
 `;
 
@@ -47,13 +48,14 @@ const client = new Client({
 const player = new Player(client, {
     ytdlOptions: {
         quality: 'highestaudio',
-        highWaterMark: 1 << 25, // Augmente la mémoire tampon pour éviter les coupures
-        filter: 'audioonly'
+        highWaterMark: 1 << 25
     }
 });
 
-player.events.on('playerError', (queue, error) => console.log(`❌ PlayerError: ${error.message}`));
-player.events.on('error', (queue, error) => console.log(`❌ Error: ${error.message}`));
+// Logs d'erreur détaillés (C'est ça qui va nous aider)
+player.events.on('playerError', (queue, error) => console.log(`❌ PlayerError CRITIQUE: ${error.message}`));
+player.events.on('error', (queue, error) => console.log(`❌ Error LOGIQUE: ${error.message}`));
+player.events.on('debug', (queue, message) => console.log(`🔧 Debug: ${message}`));
 
 client.on('ready', async () => {
     console.log(`✅ Connecté: ${client.user.tag}`);
@@ -69,7 +71,7 @@ client.on('messageCreate', async message => {
     if (message.author.bot) return;
     if (message.content === '!aide') message.reply(TXT_AIDE);
 
-    // --- PLAY (CORRIGÉ POUR LES LIENS) ---
+    // --- PLAY ---
     if (message.content.startsWith('!play ')) {
         const query = message.content.slice(6);
         const voiceChannel = message.member.voice.channel;
@@ -78,29 +80,31 @@ client.on('messageCreate', async message => {
         try {
             await message.channel.sendTyping();
             
-            // On utilise "QueryType.AUTO" pour qu'il devine si c'est un lien ou un titre
+            // Si c'est un lien, on laisse le système deviner. Sinon SoundCloud.
+            const searchEngine = query.includes('http') ? QueryType.AUTO : QueryType.SOUNDCLOUD_SEARCH;
+
             const result = await player.play(voiceChannel, query, {
                 nodeOptions: { metadata: message },
-                searchEngine: QueryType.AUTO 
+                searchEngine: searchEngine
             });
-            return message.reply(`🎶 **En piste :** ${result.track.title}`);
+            
+            return message.reply(`🎵 **En lecture :** ${result.track.title}`);
         } catch (e) {
             console.error(e);
-            return message.reply(`❌ Erreur : Impossible de lire ce titre/lien (Blocage YouTube probable).`);
+            // On affiche l'erreur brute pour comprendre
+            return message.reply(`❌ ERREUR TECHNIQUE :\n\`${e.message}\``);
         }
     }
 
-    // --- STOP ---
+    // --- STOP / SKIP / QUEUE ---
     if (message.content === '!stop') {
         const queue = player.nodes.get(message.guild);
         if (queue) { queue.delete(); message.reply("🛑 Stop."); }
     }
-    // --- SKIP ---
     if (message.content === '!skip') {
         const queue = player.nodes.get(message.guild);
         if (queue && queue.isPlaying()) { queue.node.skip(); message.reply("⏭️ Suivant"); }
     }
-    // --- QUEUE ---
     if (message.content === '!queue') {
         const queue = player.nodes.get(message.guild);
         if (!queue || queue.tracks.size === 0) return message.reply("📭 Vide.");
