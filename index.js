@@ -10,21 +10,21 @@ try {
     token = config.token;
     geminiKey = config.geminiKey;
 } catch (error) {
-    // Si on est sur Render, on prend les variables d'environnement
+    // Sur Render, on utilise les variables d'environnement
     token = process.env.DISCORD_TOKEN;
     geminiKey = process.env.GEMINI_KEY; 
 }
 
-// --- 2. SERVEUR WEB (Pour que Render garde le bot allumé) ---
+// --- 2. SERVEUR WEB (Pour garder le bot allumé sur Render) ---
 const server = http.createServer((req, res) => {
     res.writeHead(200);
-    res.end('Cassian est vivant !');
+    res.end('Cassian est en ligne !');
 });
 server.listen(3000, () => {
     console.log('Serveur web prêt.');
 });
 
-// --- 3. CONFIGURATION IA ET DISCORD ---
+// --- 3. CONFIGURATION DU BOT ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -33,9 +33,9 @@ const client = new Client({
     ]
 });
 
-// On configure l'IA avec le modèle standard "gemini-pro"
+// Configuration de l'IA avec le modèle Flash (le plus rapide)
 const genAI = new GoogleGenerativeAI(geminiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 client.on('ready', () => {
     console.log(`Connecté en tant que ${client.user.tag}!`);
@@ -43,36 +43,36 @@ client.on('ready', () => {
 
 // --- 4. ECOUTE DES MESSAGES ---
 client.on('messageCreate', async message => {
-    // Ne jamais répondre aux autres bots (ou à soi-même)
+    // Ignorer les messages des autres bots
     if (message.author.bot) return;
 
-    // Commande simple
+    // Commande de test basique
     if (message.content === '!ping') {
         message.reply('Pong!');
     }
 
-    // Commande IA : Si le message commence par "!ia "
+    // Commande pour parler à l'IA
     if (message.content.startsWith('!ia ')) {
         const question = message.content.slice(4); // On enlève le "!ia "
         
-        // Petit effet "Cassian écrit..."
+        // Indique que le bot écrit...
         await message.channel.sendTyping();
 
         try {
-            // On envoie la question à Google
+            // Envoi de la question à Google Gemini
             const result = await model.generateContent(question);
             const response = await result.response;
             const text = response.text();
 
-            // Discord limite à 2000 caractères, on coupe si c'est trop long
+            // Discord limite les messages à 2000 caractères
             if (text.length > 2000) {
                 await message.reply(text.slice(0, 1990) + "...");
             } else {
                 await message.reply(text);
             }
         } catch (error) {
-            console.error(error);
-            await message.reply("Désolé, mon cerveau a surchauffé (Erreur IA).");
+            console.error("ERREUR IA :", error); // Affiche l'erreur dans les logs
+            await message.reply("Désolé, j'ai eu un problème pour contacter mon cerveau (Erreur Google).");
         }
     }
 });
