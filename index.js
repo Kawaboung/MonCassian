@@ -1,71 +1,43 @@
-// Importation des classes nécessaires
-const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
-const config = require('./config.json');
+const { Client, GatewayIntentBits } = require('discord.js');
+const http = require('http');
 
-// 1. DÉFINITION DES COMMANDES SLASH
-const commands = [
-    {
-        name: 'ping',
-        description: 'Répond avec Pong! et la latence du bot.'
-    },
-    {
-        name: 'radar', 
-        description: 'Affiche la carte radar des précipitations (Source Météox).' // Description mise à jour
-    },
-];
+// 1. Mini-serveur pour que Render garde le bot allumé (Ping)
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('Le bot est en ligne !');
+});
+server.listen(3000, () => {
+  console.log('Serveur web prêt pour Render.');
+});
 
-// 2. INITIALISATION DU CLIENT
-const client = new Client({ 
+// 2. Configuration du Bot
+const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds
-    ] 
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
-// 3. ÉVÉNEMENT "READY" (Bot connecté)
-client.on('ready', async () => {
-    console.log(`✅ Le bot est connecté en tant que ${client.user.tag} !`);
+// 3. Le code de votre bot
+client.on('ready', () => {
+    console.log(`Connecté en tant que ${client.user.tag}!`);
+});
 
-    // Enregistrement des commandes slash
-    const rest = new REST({ version: '10' }).setToken(config.token);
-
-    try {
-        console.log('Enregistrement des commandes slash...');
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands },
-        );
-        console.log('Commandes slash enregistrées avec succès.');
-    } catch (error) {
-        console.error("Erreur lors de l'enregistrement des commandes :", error);
+client.on('messageCreate', message => {
+    if (message.content === '!ping') {
+        message.reply('Pong!');
     }
 });
 
-// 4. GESTION DES COMMANDES (Logique de réponse)
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+// 4. Connexion sécurisée via les Variables d'Environnement (Render)
+// Si on est sur le PC, on utilise le config.json, sinon on utilise la variable Render
+let token;
+try {
+    const config = require('./config.json');
+    token = config.token;
+} catch (error) {
+    token = process.env.DISCORD_TOKEN; // C'est ici que Render donnera le mot de passe
+}
 
-    const { commandName } = interaction;
-
-    if (commandName === 'ping') {
-        await interaction.reply({ 
-            content: `Pong! Latence : ${client.ws.ping}ms`,
-            ephemeral: true
-        });
-    } else if (commandName === 'radar') {
-        // --- BLOC RADAR AVEC SOURCE MÉTÉOX STABLE ---
-        // Cette URL est connue pour être stable et ne pas bloquer l'affichage externe.
-        const stableRadarURL = "https://www.meteox.com/images.aspx?jaar=-30&soort=webmaster";
-
-        await interaction.reply({
-            content: `📡 Carte Radar Précipitations (Source Météox) :\n${stableRadarURL}`
-        });
-        // ------------------------------------------------------------------
-    }
-});
-
-
-// 5. CONNEXION DU BOT
-client.login(config.token).catch(e => {
-    console.error("Échec de la connexion. Vérifiez votre TOKEN et vos Intents.");
-    console.error(e);
-});
+client.login(token);
