@@ -1,6 +1,8 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Player } = require('discord-player');
+// AJOUT VITAL : On importe la liste des extracteurs
+const { DefaultExtractors } = require('@discord-player/extractor'); 
 const http = require('http');
 
 // ==========================================
@@ -42,7 +44,7 @@ const client = new Client({
     ]
 });
 
-// --- MUSIQUE (Correction ici) ---
+// --- MUSIQUE ---
 const player = new Player(client, {
     ytdlOptions: {
         quality: 'highestaudio',
@@ -50,24 +52,21 @@ const player = new Player(client, {
     }
 });
 
-// Chargement des extracteurs (YouTube, Spotify...)
-// C'est ici que j'avais oublié le "await" !
-async function chargerExtracteurs() {
-    await player.extractors.loadDefault();
-    console.log("✅ Extracteurs audio chargés !");
-}
+// Gestion des erreurs musique
+player.events.on('playerError', (queue, error) => console.log(`❌ PlayerError: ${error.message}`));
+player.events.on('error', (queue, error) => console.log(`❌ Error: ${error.message}`));
 
-// Gestion des erreurs musique (Pour comprendre si ça plante)
-player.events.on('playerError', (queue, error) => {
-    console.log(`❌ Erreur Player: ${error.message}`);
-});
-player.events.on('error', (queue, error) => {
-    console.log(`❌ Erreur Queue: ${error.message}`);
-});
-
-client.on('ready', () => {
+client.on('ready', async () => {
     console.log(`✅ Connecté: ${client.user.tag}`);
-    chargerExtracteurs(); // On lance le chargement au démarrage
+
+    // --- CORRECTION ICI : CHARGEMENT FORCÉ ---
+    try {
+        console.log("⏳ Chargement des extracteurs audio...");
+        await player.extractors.loadMulti(DefaultExtractors);
+        console.log("✅ Extracteurs chargés avec succès ! (YouTube, Spotify, etc.)");
+    } catch (e) {
+        console.log("❌ CRASH chargement extracteurs :", e);
+    }
 });
 
 client.on('messageCreate', async message => {
@@ -84,10 +83,11 @@ client.on('messageCreate', async message => {
         try {
             await message.channel.sendTyping();
             
+            // On joue !
             const result = await player.play(voiceChannel, query, {
                 nodeOptions: { metadata: message }
             });
-            return message.reply(`🎶 **Trouvé :** ${result.track.title}`);
+            return message.reply(`🎶 **En piste :** ${result.track.title}`);
         } catch (e) {
             console.error(e);
             return message.reply(`❌ Erreur : ${e.message}`);
@@ -98,6 +98,18 @@ client.on('messageCreate', async message => {
     if (message.content === '!stop') {
         const queue = player.nodes.get(message.guild);
         if (queue) { queue.delete(); message.reply("🛑 Stop."); }
+    }
+    // --- SKIP ---
+    if (message.content === '!skip') {
+        const queue = player.nodes.get(message.guild);
+        if (queue && queue.isPlaying()) { queue.node.skip(); message.reply("⏭️ Suivant"); }
+    }
+    // --- QUEUE ---
+    if (message.content === '!queue') {
+        const queue = player.nodes.get(message.guild);
+        if (!queue || queue.tracks.size === 0) return message.reply("📭 Vide.");
+        const list = queue.tracks.map((t, i) => `${i+1}. ${t.title}`).slice(0, 5).join('\n');
+        message.reply(`📜 **File d'attente :**\n${list}`);
     }
 
     // --- IA ---
