@@ -1,3 +1,8 @@
+// --- FIX OVH (FORCE IPV4) ---
+const dns = require('node:dns');
+dns.setDefaultResultOrder('ipv4first');
+// ----------------------------
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Player, QueryType } = require('discord-player');
@@ -9,8 +14,7 @@ const http = require('http');
 // ==========================================
 const TXT_AIDE = `
 🎵 **MUSIQUE**
-!play [titre] -> Cherche sur SoundCloud
-!play [lien] -> Lit le lien (SC, Spotify...)
+!play [titre/lien]
 !stop / !skip / !queue
 `;
 
@@ -52,19 +56,15 @@ const player = new Player(client, {
     }
 });
 
-// Logs d'erreur détaillés (C'est ça qui va nous aider)
-player.events.on('playerError', (queue, error) => console.log(`❌ PlayerError CRITIQUE: ${error.message}`));
-player.events.on('error', (queue, error) => console.log(`❌ Error LOGIQUE: ${error.message}`));
-player.events.on('debug', (queue, message) => console.log(`🔧 Debug: ${message}`));
+// Logs simplifiés
+player.events.on('error', (queue, error) => console.log(`Error: ${error.message}`));
+player.events.on('playerError', (queue, error) => console.log(`PlayerError: ${error.message}`));
 
 client.on('ready', async () => {
     console.log(`✅ Connecté: ${client.user.tag}`);
-    try {
-        await player.extractors.loadMulti(DefaultExtractors);
-        console.log("✅ Extracteurs chargés !");
-    } catch (e) {
-        console.log("❌ Erreur chargement extracteurs :", e);
-    }
+    // On charge les extracteurs
+    await player.extractors.loadMulti(DefaultExtractors);
+    console.log("✅ Moteur audio prêt.");
 });
 
 client.on('messageCreate', async message => {
@@ -75,36 +75,35 @@ client.on('messageCreate', async message => {
     if (message.content.startsWith('!play ')) {
         const query = message.content.slice(6);
         const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply("❌ Tu dois être en vocal !");
+        if (!voiceChannel) return message.reply("❌ Vocal requis !");
 
         try {
             await message.channel.sendTyping();
             
-            // Si c'est un lien, on laisse le système deviner. Sinon SoundCloud.
-            const searchEngine = query.includes('http') ? QueryType.AUTO : QueryType.SOUNDCLOUD_SEARCH;
-
+            // On laisse le système gérer (le fix IPv4 devrait aider YouTube et SC)
             const result = await player.play(voiceChannel, query, {
                 nodeOptions: { metadata: message },
-                searchEngine: searchEngine
+                searchEngine: QueryType.AUTO
             });
             
             return message.reply(`🎵 **En lecture :** ${result.track.title}`);
         } catch (e) {
             console.error(e);
-            // On affiche l'erreur brute pour comprendre
-            return message.reply(`❌ ERREUR TECHNIQUE :\n\`${e.message}\``);
+            return message.reply(`❌ Erreur : ${e.message}`);
         }
     }
 
-    // --- STOP / SKIP / QUEUE ---
+    // --- STOP ---
     if (message.content === '!stop') {
         const queue = player.nodes.get(message.guild);
         if (queue) { queue.delete(); message.reply("🛑 Stop."); }
     }
+    // --- SKIP ---
     if (message.content === '!skip') {
         const queue = player.nodes.get(message.guild);
         if (queue && queue.isPlaying()) { queue.node.skip(); message.reply("⏭️ Suivant"); }
     }
+    // --- QUEUE ---
     if (message.content === '!queue') {
         const queue = player.nodes.get(message.guild);
         if (!queue || queue.tracks.size === 0) return message.reply("📭 Vide.");
@@ -115,7 +114,7 @@ client.on('messageCreate', async message => {
     // --- IA ---
     if (message.content.startsWith('!ia ')) {
         const question = message.content.slice(4);
-        await message.channel.sendTyping();
+        // Pas de réponse typing pour l'IA pour éviter les doublons visuels
         try {
             const result = await model.generateContent(question);
             const text = result.response.text();
